@@ -1,0 +1,465 @@
+# Road Trip Weather Alert System — Full Spec
+
+**Purpose:** Alert traveling family/friends via SMS when severe weather is detected near
+their last known GPS location, even when they have limited or intermittent satellite
+connectivity (Verizon satellite SMS relay).
+
+**Timeline:** MVP needed within one week. Prioritize working system over polish.
+
+---
+
+## Architecture Overview
+
+```
+Netlify (yoursite.com)          →  Frontend SPA (mobile browser)
+Render Web Service (api.yoursite.com)  →  Flask REST API
+Render Cron Job                 →  Weather polling script (every 10 min)
+Render PostgreSQL               →  Persistent database
+NOAA / NWS API                  →  Weather alert data (free, no key needed)
+OSM Nominatim                   →  Reverse geocoding (free, no key needed)
+Twilio                          →  Outbound SMS delivery
+Bluehost DNS                    →  Domain routing (subdomain split)
+```
+
+### DNS / Routing (Bluehost)
+
+| Domain                  | Target                          |
+|-------------------------|---------------------------------|
+| `yoursite.com`          | Netlify (CNAME to Netlify URL)  |
+| `api.yoursite.com`      | Render (CNAME to Render URL)    |
+
+Flask must have CORS enabled for `yoursite.com` requests to `api.yoursite.com`.
+
+---
+
+## User Model
+
+**Scope:** Small family/friends group. No public registration. Admin provisions all users.
+
+Each user has:
+- A name (displayed on their page, used in SMS context)
+- A phone number (SMS destination)
+- A unique access token (UUID) embedded in their personal URL
+- An active/inactive flag (admin-controlled only)
+- Independent location tracking (each user tracks their own location separately)
+
+**Admin** is also a regular user account. Admin's phone number receives system failure
+alerts in addition to weather alerts.
+
+---
+
+## Database (PostgreSQL on Render)
+
+Use Render's free managed PostgreSQL instance. Connect via `DATABASE_URL` environment
+variable.
+
+### Table: `users`
+
+| Column               | Type      | Notes                                      |
+|----------------------|-----------|--------------------------------------------|
+| id                   | SERIAL PK |                                            |
+| name                 | VARCHAR   | Display name (e.g., "Mom", "Dad")          |
+| phone_number         | VARCHAR   | E.164 format (e.g., +15555551234)          |
+| access_token         | UUID      | Unique URL token — generated on creation   |
+| is_active            | BOOLEAN   | Default true. Admin-toggled only.          |
+| is_admin             | BOOLEAN   | Default false. Receives system error SMS.  |
+| created_at           | TIMESTAMP | Auto-set on insert                         |
+| last_alert_sent_at   | TIMESTAMP | Nullable. For rate limiting reference.     |
+| stale_warning_sent   | BOOLEAN   | Default false. Reset to false on new location update. |
+
+### Table: `locations`
+
+| Column     | Type      | Notes                                              |
+|------------|-----------|----------------------------------------------------|
+| id         | SERIAL PK |                                                    |
+| user_id    | INT FK    | References users.id                                |
+| lat        | FLOAT     |                                                    |
+| lon        | FLOAT     |                                                    |
+| city_state | VARCHAR   | Nullable. Cached reverse-geocoded label.           |
+| timestamp  | TIMESTAMP | Auto-set on insert                                 |
+
+### Table: `sent_alerts`
+
+| Column    | Type      | Notes                                              |
+|-----------|-----------|----------------------------------------------------|
+| id        | SERIAL PK |                                                    |
+| alert_id  | VARCHAR   | NWS alert ID (unique per alert)                    |
+| user_id   | INT FK    | References users.id                                |
+| sent_at   | TIMESTAMP | Auto-set on insert                                 |
+
+`(alert_id, user_id)` should have a UNIQUE constraint to prevent duplicates.
+
+Records are kept forever (table stays small for typical road trip usage).
+
+---
+
+## Backend (Flask)
+
+### Environment Variables (Render)
+
+```
+DATABASE_URL          PostgreSQL connection string (auto-set by Render)
+ADMIN_PASSWORD        Password for /admin route (HTTP basic auth)
+TWILIO_ACCOUNT_SID    From Twilio Console → Account Info
+TWILIO_AUTH_TOKEN     From Twilio Console → Account Info (click to reveal)
+TWILIO_FROM_NUMBER    From Twilio Console → Phone Numbers → Manage → Active Numbers
+```
+
+### Finding Your Twilio Credentials
+
+1. **Account SID & Auth Token:** Log into console.twilio.com. On the main dashboard,
+   scroll to "Account Info." Click the eye icon next to Auth Token to reveal it.
+2. **Phone Number:** In the left nav, go to Phone Numbers → Manage → Active Numbers.
+   Your Twilio number is listed there in E.164 format (e.g., +15555550100).
+
+### API Endpoints
+
+#### `POST /api/location`
+
+Accepts a user's GPS location update.
+
+**Request Body (JSON):**
+```json
+{
+  "token": "<user_access_token>",
+  "lat": 39.7392,
+  "lon": -104.9903
+}
+```
+
+**Behavior:**
+1. Validate token → look up user; return 401 if not found or inactive.
+2. Validate lat (-90 to 90) and lon (-180 to 180); return 400 if invalid.
+3. Call Nominatim reverse geocode to get city/state label (cache in `city_state` column).
+4. Insert new row into `locations`.
+5. Reset `stale_warning_sent` to false for this user.
+6. **Immediately** trigger an async weather check for this user (do not block the response).
+7. Return 200 with `{ "status": "ok", "city_state": "Denver, CO" }`.
+
+#### `GET /api/status/<token>`
+
+Returns current state for a user's frontend page.
+
+**Response (JSON):**
+```json
+{
+  "name": "Mom",
+  "last_location": {
+    "lat": 39.7392,
+    "lon": -104.9903,
+    "city_state": "Denver, CO",
+    "timestamp": "2026-03-26T14:32:00Z"
+  },
+  "active_alerts": [
+    {
+      "event": "Tornado Warning",
+      "headline": "Tornado Warning issued March 26 ...",
+      "severity": "Extreme"
+    }
+  ]
+}
+```
+
+- `last_location` is null if no location has been sent yet.
+- `active_alerts` is the current filtered NWS alerts for the last known location (live
+  fetch, not cached). Empty array if none.
+
+#### Admin Endpoints (HTTP Basic Auth via `ADMIN_PASSWORD`)
+
+All admin routes require `Authorization: Basic` header with username `admin` and the
+configured password.
+
+| Method | Path                                  | Action                                         |
+|--------|---------------------------------------|------------------------------------------------|
+| GET    | `/admin/users`                        | List all users with token, status, last seen   |
+| POST   | `/admin/users`                        | Create user (name, phone_number, is_admin)     |
+| DELETE | `/admin/users/<id>`                   | Delete user (cascades locations + sent_alerts) |
+| PATCH  | `/admin/users/<id>/toggle-active`     | Flip is_active boolean                         |
+| POST   | `/admin/users/<id>/regenerate-token`  | Generate new UUID token; old URL stops working |
+| POST   | `/admin/users/<id>/test-sms`          | Send a test SMS to this user's phone number    |
+| POST   | `/admin/trigger-check`                | Run weather check immediately for all users    |
+
+---
+
+## Frontend (Netlify)
+
+Single-page HTML/CSS/JS app served from Netlify. No build framework required.
+
+### User Page: `yoursite.com/u/<token>`
+
+The token in the URL identifies the user. No login required.
+
+**Displays:**
+- Greeting: "Hi [Name]" confirming the correct user loaded
+- Button: "Send My Location" (large, mobile-friendly tap target)
+- Last location sent: city/state + coordinates + relative timestamp
+  (e.g., "Denver, CO (39.74, -104.99) — 3 hours ago")
+- Current weather alert status: either "No active alerts near your location" or a list
+  of active alert event names and headlines
+
+**On button press:**
+1. Browser calls `navigator.geolocation.getCurrentPosition()`
+2. On success: POST to `https://api.yoursite.com/api/location` with token + coords
+3. Show success message: "Location updated! [city, state]"
+4. Refresh the status display
+5. On geolocation failure: show "Could not get location. Please enable location access."
+6. On API failure: show "Failed to send location. Please try again."
+
+**Design:** Clean, minimal, high-contrast. Large font. Works well on small phone screens
+in bright outdoor light. No dependencies on external CSS frameworks (keep it simple and
+fast-loading on slow satellite connections).
+
+---
+
+## Weather Alert Logic
+
+### NWS API
+
+Base URL: `https://api.weather.gov`
+
+**Step 1: Get grid point**
+```
+GET /points/{lat},{lon}
+```
+Returns the NWS grid office and grid coordinates for the location.
+
+**Step 2: Get active alerts for point**
+```
+GET /alerts/active?point={lat},{lon}
+```
+Returns all currently active alerts for that geographic point.
+
+No API key required. Set a descriptive `User-Agent` header as required by NWS:
+```
+User-Agent: WeatherAlertApp/1.0 (your-email@example.com)
+```
+
+### Filtering Logic
+
+An alert passes the filter if it meets **either** condition:
+
+**Condition A — Priority event types (checked first for ordering):**
+- Event name contains "Tornado"
+- Event name contains "Flash Flood"
+- Event name contains "Severe Thunderstorm"
+
+**Condition B — High severity:**
+- `severity` field is "Severe" or "Extreme"
+
+**Additional rules:**
+- Skip alerts with an `alert_id` already in `sent_alerts` for this user.
+- Skip alerts where `status` is not "Actual" (ignore Test, Exercise, Draft).
+- Maximum 2 alerts sent per polling cycle per user.
+- **Priority ordering** within the cap: Condition A events are sent before Condition B
+  events. Within Condition A, order is: Tornado > Flash Flood > Severe Thunderstorm.
+
+### Reverse Geocoding (for SMS location reference)
+
+Use OSM Nominatim (free, no key needed):
+```
+GET https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json
+```
+
+Extract `address.city` (or `address.town` / `address.county` as fallback) +
+`address.state`. Format as "Denver, CO". Cache the result in the `locations.city_state`
+column at the time of location POST to avoid repeated calls during SMS sends.
+
+---
+
+## SMS Message Format
+
+Target: 160–320 characters (1–2 SMS segments). Verizon satellite SMS relay uses standard
+SMS encoding.
+
+**Weather alert message:**
+```
+WEATHER ALERT: [Event Type]
+Near [City, State]
+[Headline truncated to ~100 chars]
+Update location if you've moved.
+```
+
+Example:
+```
+WEATHER ALERT: Tornado Warning
+Near Amarillo, TX
+Tornado Warning in effect until 4:30 PM CDT. Take shelter immediately.
+Update location if you've moved.
+```
+
+**Stale location warning (sent once, after 12 hours of no update):**
+```
+Weather Alert System: No location update in 12+ hrs.
+Last known: [City, State] ([timestamp]).
+Open your link to update location if you have signal.
+```
+
+**Test SMS:**
+```
+Weather Alert System: Test message for [Name]. System is working correctly.
+```
+
+**System failure alert (to admin user only):**
+```
+Weather Alert System ERROR: Weather check failed for [Name].
+Error: [short error message]. Check Render logs.
+```
+
+---
+
+## Background Weather Poller (Render Cron Job)
+
+### Setup
+
+Create a separate **Render Cron Job** service pointing to a script `poller.py`.
+Set schedule: `*/10 * * * *` (every 10 minutes).
+The cron job connects to the same PostgreSQL database via `DATABASE_URL`.
+
+### Poller Logic (per active user)
+
+```
+for each user where is_active = true:
+    1. Get most recent location for user.
+    2. If no location exists → skip user.
+    3. If location is older than 12 hours AND stale_warning_sent = false:
+          → Send stale warning SMS to user.
+          → Set stale_warning_sent = true.
+          → Continue (still check weather with stale location).
+    4. Call NWS alerts API for user's latest lat/lon.
+    5. If NWS API call fails:
+          → Retry once after 5 seconds.
+          → If still failing: log error, send SMS to all admin users, skip user.
+    6. Filter alerts (see Filtering Logic above).
+    7. Sort by priority (Tornado > Flash Flood > Severe Thunderstorm > other Severe/Extreme).
+    8. Take up to 2 alerts.
+    9. For each alert:
+          → If alert_id already in sent_alerts for this user → skip.
+          → Send SMS.
+          → Insert into sent_alerts.
+```
+
+### Immediate Check on Location Update
+
+When `POST /api/location` receives a valid update, the Flask app should trigger the
+poller logic for that specific user asynchronously (e.g., using a background thread or
+task queue). This ensures the user gets an immediate alert if severe weather is active
+when they check in, without waiting up to 10 minutes.
+
+---
+
+## Admin Page (Web UI)
+
+Served by Flask at `/admin` (or `/admin/*`). Protected by HTTP Basic Auth.
+
+**User list view:**
+- Table of all users: Name | Phone | Status (Active/Inactive) | Last Location | Last Alert
+- Per user: Edit, Delete, Regenerate Token, Toggle Active, Test SMS buttons
+- "Copy URL" button next to each user — copies `yoursite.com/u/<token>` to clipboard
+  (this is how you share the link with your parents)
+
+**Add user form:**
+- Fields: Name, Phone Number (E.164), Admin? (checkbox)
+- On submit: generate UUID token, insert to DB, show the generated URL
+
+**Manual trigger:**
+- "Run Weather Check Now" button → calls `POST /admin/trigger-check`
+- Shows result: how many alerts were sent, any errors
+
+---
+
+## Edge Case Handling
+
+| Scenario                        | Behavior                                                    |
+|---------------------------------|-------------------------------------------------------------|
+| No location on file             | Poller skips user entirely                                  |
+| Location older than 12 hours    | Send stale warning once; still check weather at that location |
+| NWS API failure (after retry)   | Log error; SMS admin user(s); skip this cycle               |
+| Duplicate alert                 | Skipped via `sent_alerts` table UNIQUE constraint           |
+| More than 2 alerts in one cycle | Only top 2 by priority are sent                             |
+| Invalid token on /location POST | Return 401; do nothing                                      |
+| Inactive user visits their URL  | Page shows "Alerts are currently paused for this account."  |
+| Geolocation denied in browser   | Show clear error message with instructions to enable        |
+
+---
+
+## Security Considerations
+
+- Access tokens are UUIDs (v4) — sufficiently random and long to resist guessing
+- Admin password stored only in env var, never in code or DB
+- All API endpoints validate token before any DB write
+- CORS restricted to `yoursite.com` origin only
+- No user PII beyond phone number; phone numbers stored in plaintext (acceptable for MVP)
+- HTTPS enforced by default on both Netlify and Render
+
+---
+
+## Deployment Checklist
+
+### Render Setup
+1. Create a **Web Service** from your Flask repo. Set start command: `gunicorn app:app`
+2. Create a **PostgreSQL** instance (free tier). Copy the Internal Database URL to
+   the Web Service's `DATABASE_URL` env var.
+3. Create a **Cron Job** service pointing to `poller.py`. Schedule: `*/10 * * * *`.
+   Add the same `DATABASE_URL` and Twilio env vars to the Cron Job.
+4. Set all environment variables: `DATABASE_URL`, `ADMIN_PASSWORD`, `TWILIO_ACCOUNT_SID`,
+   `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`.
+5. Add custom domain `api.yoursite.com` in Render service settings.
+
+### Bluehost DNS Setup
+1. Add CNAME record: `api` → your Render app URL (e.g., `your-app.onrender.com`)
+2. Add CNAME record: `www` → your Netlify URL (or use Netlify's domain alias)
+3. (Or point root domain `@` to Netlify via A record — follow Netlify docs)
+
+### Netlify Setup
+1. Deploy static files (HTML/CSS/JS) from repo.
+2. Add custom domain `yoursite.com` in Netlify settings.
+3. Update the API base URL constant in the frontend JS to `https://api.yoursite.com`.
+
+### Database Initialization
+Run `flask db init` (or a migration script) to create tables on first deploy.
+
+### First Use
+1. Open `yoursite.com/admin` (will prompt for password)
+2. Add yourself as an admin user first (so you receive error alerts)
+3. Add your parents as users; copy their generated URLs
+4. Send each person their unique URL via text/email
+5. Use "Test SMS" to verify Twilio is working for each number
+6. Use "Run Weather Check Now" to verify the poller works end-to-end
+
+---
+
+## MVP Build Order
+
+1. PostgreSQL schema + Flask app skeleton + `DATABASE_URL` connection
+2. `POST /api/location` endpoint (with Nominatim reverse geocode)
+3. Frontend page: token in URL, greeting, location button
+4. NWS API integration + filtering logic (test manually)
+5. Twilio SMS integration (`send_sms()` helper)
+6. Background poller script (`poller.py`)
+7. `GET /api/status/<token>` endpoint + wire up frontend status display
+8. Admin page (user CRUD, token copy, test SMS, manual trigger)
+9. Render Cron Job setup + full end-to-end test
+10. DNS configuration (Bluehost → Netlify + Render)
+
+---
+
+## Definition of Done
+
+- Parent can open their unique URL on a phone browser, tap "Send My Location," and see
+  their location confirmed on the page.
+- Location is stored in PostgreSQL with a city/state label.
+- System sends an SMS within 10 minutes of a relevant NWS alert becoming active.
+- Stale location warning is sent after 12 hours of no update (once only).
+- Admin can add/remove users, regenerate tokens, and send test SMS messages.
+- No duplicate SMS messages are sent for the same alert to the same user.
+
+---
+
+## Future Enhancements (Post-MVP)
+
+- Auto-update location on a timer when the device has connectivity (background JS)
+- Push notifications as an alternative to SMS (browser push API)
+- Location history view on admin page (map with pins)
+- Per-user configurable alert radius (currently fixed at NWS point-based)
+- Weekly "system health" summary SMS to admin
+- Trip date range: auto-deactivate users after trip end date

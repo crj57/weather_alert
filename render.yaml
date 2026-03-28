@@ -1,0 +1,46 @@
+databases:
+  - name: weather-alert-db
+    databaseName: weather_alert
+    user: weather_alert
+    plan: free
+
+services:
+  - type: web
+    name: weather-alert-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: weather-alert-db
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://www.jzewski.online
+      - key: ADMIN_PASSWORD
+        sync: false        # set manually in Render dashboard
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+
+  - type: cron
+    name: weather-alert-poller
+    runtime: python
+    schedule: "*/10 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python poller.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: weather-alert-db
+          property: connectionString
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false

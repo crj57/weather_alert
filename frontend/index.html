@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weather Alert</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 40px;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px 24px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    .greeting {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      font-size: 0.95rem;
+      color: #666;
+    }
+
+    /* ── Send location button ─────────────────────────────────────── */
+    #send-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 18px;
+      margin-top: 24px;
+      background: #1d72e8;
+      color: #fff;
+      font-size: 1.1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #send-btn:active  { transform: scale(0.97); }
+    #send-btn:disabled {
+      background: #93b8f0;
+      cursor: not-allowed;
+      transform: none;
+    }
+    #send-btn .btn-icon { font-size: 1.3rem; }
+
+    /* ── Feedback message ─────────────────────────────────────────── */
+    #feedback {
+      margin-top: 14px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      min-height: 22px;
+      text-align: center;
+    }
+    #feedback.success { color: #16a34a; }
+    #feedback.error   { color: #dc2626; }
+    #feedback.info    { color: #555; }
+
+    /* ── Last location ────────────────────────────────────────────── */
+    .section-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #888;
+      margin-bottom: 10px;
+    }
+
+    .location-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .location-icon { font-size: 1.4rem; margin-top: 2px; }
+    .location-city {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+    .location-coords {
+      font-size: 0.82rem;
+      color: #888;
+      margin-top: 2px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .location-time {
+      font-size: 0.85rem;
+      color: #666;
+      margin-top: 4px;
+    }
+    .location-none {
+      color: #999;
+      font-size: 0.95rem;
+    }
+
+    /* ── Weather alerts ───────────────────────────────────────────── */
+    .alert-clear {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #16a34a;
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+    .alert-clear .icon { font-size: 1.2rem; }
+
+    .alert-item {
+      border-left: 4px solid #f59e0b;
+      padding: 10px 12px;
+      border-radius: 0 8px 8px 0;
+      background: #fffbeb;
+      margin-bottom: 10px;
+    }
+    .alert-item.extreme, .alert-item.tornado {
+      border-color: #dc2626;
+      background: #fef2f2;
+    }
+    .alert-event {
+      font-size: 0.98rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 3px;
+    }
+    .alert-headline {
+      font-size: 0.85rem;
+      color: #555;
+      line-height: 1.4;
+    }
+
+    /* ── Paused state ─────────────────────────────────────────────── */
+    .paused-banner {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 0.95rem;
+      color: #92400e;
+      text-align: center;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    /* ── Loading skeleton ─────────────────────────────────────────── */
+    .skeleton {
+      background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 6px;
+      height: 18px;
+      margin-bottom: 8px;
+    }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    /* ── Error / invalid token ────────────────────────────────────── */
+    .error-page {
+      text-align: center;
+      color: #666;
+      margin-top: 60px;
+    }
+    .error-page .big { font-size: 3rem; margin-bottom: 12px; }
+    .error-page p { font-size: 1rem; }
+  </style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:5000'
+  : 'https://api.jzewski.online';
+
+// ── Bootstrap ───────────────────────────────────────────────────────────────
+const token = extractToken();
+
+if (!token) {
+  showErrorPage('Invalid link. Please use the link that was sent to you.');
+} else {
+  showLoadingSkeleton();
+  loadStatus();
+}
+
+// ── Token extraction ─────────────────────────────────────────────────────────
+// Supports three formats:
+//   Production (Netlify): /u/<token>
+//   Local testing:        /?token=<token>  or  /#<token>
+function extractToken() {
+  const pathMatch = window.location.pathname.match(/^\/u\/([^/]+)/);
+  if (pathMatch) return pathMatch[1];
+  const qp = new URLSearchParams(window.location.search).get('token');
+  if (qp) return qp;
+  const hash = window.location.hash.replace(/^#/, '');
+  if (hash) return hash;
+  return null;
+}
+
+// ── Status load ──────────────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/status/${token}`);
+    if (res.status === 401) {
+      showErrorPage('This link is not valid. Please use the link that was sent to you.');
+      return;
+    }
+    const data = await res.json();
+    renderPage(data);
+  } catch (e) {
+    renderPage(null);
+  }
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function renderPage(data) {
+  const app = document.getElementById('app');
+
+  if (!data) {
+    app.innerHTML = `
+      <div class="card">
+        <div class="greeting">Weather Alert</div>
+        <p class="subtitle" style="margin-top:8px;color:#dc2626;">
+          Could not connect to the server. Please try again.
+        </p>
+      </div>`;
+    return;
+  }
+
+  if (!data.is_active) {
+    app.innerHTML = `
+      <div class="paused-banner">
+        ⚠️ Alerts are currently paused for this account.
+      </div>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <!-- Header -->
+    <div class="card">
+      <div class="greeting">Hi, ${escHtml(data.name)} 👋</div>
+      <p class="subtitle">Tap the button below to share your location.</p>
+
+      <button id="send-btn" onclick="sendLocation()">
+        <span class="btn-icon">📍</span> Send My Location
+      </button>
+      <div id="feedback" class="info"></div>
+    </div>
+
+    <!-- Last location -->
+    <div class="card">
+      <div class="section-label">Last Location Sent</div>
+      ${renderLocation(data.last_location)}
+    </div>
+
+    <!-- Weather alerts -->
+    <div class="card">
+      <div class="section-label">Weather Near Your Location</div>
+      ${renderAlerts(data.active_alerts)}
+    </div>
+  `;
+}
+
+function renderLocation(loc) {
+  if (!loc) {
+    return `<p class="location-none">No location sent yet.</p>`;
+  }
+  const coords = `${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}`;
+  const label  = loc.city_state || coords;
+  const ago    = timeAgo(loc.timestamp);
+
+  return `
+    <div class="location-row">
+      <span class="location-icon">📌</span>
+      <div>
+        <div class="location-city">${escHtml(label)}</div>
+        ${loc.city_state ? `<div class="location-coords">${coords}</div>` : ''}
+        <div class="location-time">Updated ${ago}</div>
+      </div>
+    </div>`;
+}
+
+function renderAlerts(alerts) {
+  if (!alerts || alerts.length === 0) {
+    return `
+      <div class="alert-clear">
+        <span class="icon">✅</span>
+        No active alerts near your last location.
+      </div>`;
+  }
+  return alerts.map(a => {
+    const isSevere = /tornado/i.test(a.event) || a.severity === 'Extreme';
+    const cls = isSevere ? 'alert-item extreme' : 'alert-item';
+    const headline = a.headline ? truncate(a.headline, 120) : '';
+    return `
+      <div class="${cls}">
+        <div class="alert-event">⚠️ ${escHtml(a.event)}</div>
+        ${headline ? `<div class="alert-headline">${escHtml(headline)}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ── Send location ────────────────────────────────────────────────────────────
+function sendLocation() {
+  const btn      = document.getElementById('send-btn');
+  const feedback = document.getElementById('feedback');
+
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="btn-icon">⏳</span> Getting location…';
+  setFeedback('', '');
+
+  if (!navigator.geolocation) {
+    btn.disabled  = false;
+    btn.innerHTML = '<span class="btn-icon">📍</span> Send My Location';
+    setFeedback('Your browser does not support location sharing.', 'error');
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      btn.innerHTML = '<span class="btn-icon">📡</span> Sending…';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/location`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, lat, lon }),
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          const where = data.city_state || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+          setFeedback(`✅ Location updated — ${where}`, 'success');
+          // Refresh status cards after a short delay
+          setTimeout(loadStatus, 800);
+        } else {
+          setFeedback(data.error || 'Server error. Please try again.', 'error');
+        }
+      } catch (e) {
+        setFeedback('Could not reach the server. Check your connection.', 'error');
+      }
+
+      btn.disabled  = false;
+      btn.innerHTML = '<span class="btn-icon">📍</span> Send My Location';
+    },
+    (err) => {
+      btn.disabled  = false;
+      btn.innerHTML = '<span class="btn-icon">📍</span> Send My Location';
+      const msg = err.code === 1
+        ? 'Location access denied. Please enable it in your browser settings.'
+        : 'Could not get your location. Please try again.';
+      setFeedback(msg, 'error');
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function setFeedback(msg, type) {
+  const el = document.getElementById('feedback');
+  if (!el) return;
+  el.textContent  = msg;
+  el.className    = type;
+}
+
+function showLoadingSkeleton() {
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      <div class="skeleton" style="width:55%;height:28px;margin-bottom:10px;"></div>
+      <div class="skeleton" style="width:80%;height:16px;"></div>
+      <div class="skeleton" style="margin-top:24px;height:56px;border-radius:12px;"></div>
+    </div>
+    <div class="card">
+      <div class="skeleton" style="width:40%;height:12px;margin-bottom:14px;"></div>
+      <div class="skeleton" style="width:70%;height:18px;"></div>
+      <div class="skeleton" style="width:50%;height:14px;margin-top:6px;"></div>
+    </div>`;
+}
+
+function showErrorPage(msg) {
+  document.getElementById('app').innerHTML = `
+    <div class="error-page">
+      <div class="big">🌦️</div>
+      <p>${escHtml(msg)}</p>
+    </div>`;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function truncate(str, max) {
+  return str.length > max ? str.slice(0, max) + '…' : str;
+}
+
+function timeAgo(isoString) {
+  if (!isoString) return 'unknown';
+  const diff = Math.floor((Date.now() - new Date(isoString + 'Z')) / 1000);
+  if (diff < 60)              return 'just now';
+  if (diff < 3600)            return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400)           return `${Math.floor(diff / 3600)} hr ago`;
+  return `${Math.floor(diff / 86400)} day${Math.floor(diff / 86400) > 1 ? 's' : ''} ago`;
+}
+</script>
+</body>
+</html>
