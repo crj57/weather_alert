@@ -1,4 +1,4 @@
 [[redirects]]
-  from   = "/u/*"
-  to     = "/index.html"
+  from   = "/weather/u/*"
+  to     = "/weather/index.html"
   status = 200

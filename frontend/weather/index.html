@@ -208,10 +208,10 @@ if (!token) {
 
 // ── Token extraction ─────────────────────────────────────────────────────────
 // Supports three formats:
-//   Production (Netlify): /u/<token>
+//   Production (Netlify): /weather/u/<token>
 //   Local testing:        /?token=<token>  or  /#<token>
 function extractToken() {
-  const pathMatch = window.location.pathname.match(/^\/u\/([^/]+)/);
+  const pathMatch = window.location.pathname.match(/\/u\/([^/]+)/);
   if (pathMatch) return pathMatch[1];
   const qp = new URLSearchParams(window.location.search).get('token');
   if (qp) return qp;

@@ -210,7 +210,7 @@ function renderTable(users) {
       ? timeAgo(u.last_alert_sent_at)
       : '<span style="color:#ccc">—</span>';
     const userUrl = `${window.location.protocol}//${window.location.hostname.replace('api.', 'www.')}` +
-                    `/u/${u.access_token}`;
+                    `/weather/u/${u.access_token}`;
 
     return `<tr id="row-${u.id}">
       <td><strong>${esc(u.name)}</strong></td>
