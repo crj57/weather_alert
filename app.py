@@ -12,7 +12,7 @@ def create_app():
     app = Flask(__name__)
 
     # Render sets DATABASE_URL with the legacy postgres:// scheme; SQLAlchemy needs postgresql://
-    database_url = os.environ.get('DATABASE_URL', 'sqlite:///weather_alert.db')
+    database_url = os.environ.get('DATABASE_URL', 'sqlite:///weather_alert.db')lsof -i :5000
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
