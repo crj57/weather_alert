@@ -30,6 +30,7 @@ services:
   - type: cron
     name: weather-alert-poller
     runtime: python
+    pythonVersion: "3.11.11"
     schedule: "*/10 * * * *"
     buildCommand: pip install -r requirements.txt
     startCommand: python poller.py
