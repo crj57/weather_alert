@@ -209,7 +209,7 @@ function renderTable(users) {
     const alertTxt = u.last_alert_sent_at
       ? timeAgo(u.last_alert_sent_at)
       : '<span style="color:#ccc">—</span>';
-    const userUrl = `${window.location.protocol}//${window.location.hostname.replace('api.', 'www.')}` +
+    const userUrl = `${window.location.protocol}//${window.location.hostname.replace('api.', 'weather.')}` +
                     `/weather/u/${u.access_token}`;
 
     return `<tr id="row-${u.id}">
