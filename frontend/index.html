@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Road Trip Weather Alert</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f3f6fb;
+      color: #1a1a1a;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 60px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .hero-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+    }
+    .hero h1 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+    }
+    .hero p {
+      font-size: 1rem;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    /* ── Feature list ────────────────────────────────────────────────── */
+    .features {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.07);
+    }
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .feature-item:last-child { border-bottom: none; }
+    .feature-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 1px; }
+    .feature-text strong { display: block; font-size: 0.9rem; font-weight: 600; }
+    .feature-text span { font-size: 0.85rem; color: #666; }
+
+    /* ── Card ────────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 28px 24px;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.07);
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .card-subtitle {
+      font-size: 0.88rem;
+      color: #666;
+      margin-bottom: 20px;
+    }
+
+    /* ── Form ────────────────────────────────────────────────────────── */
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #444;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    input[type="text"],
+    input[type="tel"] {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus { border-color: #1d72e8; box-shadow: 0 0 0 3px rgba(29,114,232,0.12); }
+
+    /* ── Consent ─────────────────────────────────────────────────────── */
+    .consent-box {
+      background: #f8faff;
+      border: 1.5px solid #c7d8f5;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+    }
+    .consent-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .consent-label input[type="checkbox"] {
+      margin-top: 3px;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      accent-color: #1d72e8;
+      cursor: pointer;
+    }
+    .consent-text {
+      font-size: 0.88rem;
+      color: #333;
+      line-height: 1.55;
+    }
+    .consent-text a {
+      color: #1d72e8;
+      text-decoration: underline;
+    }
+    .consent-details {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #dde8f8;
+      font-size: 0.8rem;
+      color: #666;
+      line-height: 1.5;
+    }
+
+    /* ── Submit button ───────────────────────────────────────────────── */
+    #submit-btn {
+      width: 100%;
+      padding: 14px;
+      background: #1d72e8;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    #submit-btn:hover:not(:disabled) { background: #155ec2; }
+    #submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Feedback ────────────────────────────────────────────────────── */
+    #feedback {
+      margin-top: 12px;
+      font-size: 0.92rem;
+      font-weight: 500;
+      min-height: 20px;
+      text-align: center;
+    }
+    #feedback.success { color: #16a34a; }
+    #feedback.error   { color: #dc2626; }
+
+    /* ── Success state ───────────────────────────────────────────────── */
+    .success-card {
+      text-align: center;
+      padding: 32px 24px;
+    }
+    .success-card .big-icon { font-size: 2.8rem; margin-bottom: 12px; }
+    .success-card h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+    .success-card p { font-size: 0.95rem; color: #555; line-height: 1.6; }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    footer {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #999;
+      line-height: 1.8;
+    }
+    footer a { color: #666; text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="hero">
+    <div class="hero-icon">&#x26C8;&#xFE0F;</div>
+    <h1>Road Trip Weather Alert</h1>
+    <p>Automated SMS weather and safety alerts sent to your phone when severe weather is detected near your location — even with limited connectivity.</p>
+  </div>
+
+  <div class="features">
+    <div class="feature-item">
+      <span class="feature-icon">&#x1F4CD;</span>
+      <div class="feature-text">
+        <strong>Location-aware alerts</strong>
+        <span>Share your GPS position from any mobile browser. No app required.</span>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">&#x1F4F1;</span>
+      <div class="feature-text">
+        <strong>SMS delivery</strong>
+        <span>Alerts are sent as text messages so they reach you even with poor data.</span>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">&#x26A0;&#xFE0F;</span>
+      <div class="feature-text">
+        <strong>NOAA / NWS data</strong>
+        <span>Powered by official National Weather Service alerts — tornadoes, severe thunderstorms, flash floods, and more.</span>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">&#x1F6D1;</span>
+      <div class="feature-text">
+        <strong>Easy opt-out</strong>
+        <span>Reply STOP to any message to unsubscribe immediately.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="form-card">
+    <div class="card-title">Request Access</div>
+    <div class="card-subtitle">Enter your info below. The administrator will activate your account and send you a personal link.</div>
+
+    <div class="form-group">
+      <label for="name">Your Name</label>
+      <input type="text" id="name" placeholder="e.g. Mom" autocomplete="name" />
+    </div>
+
+    <div class="form-group">
+      <label for="phone">Mobile Phone Number</label>
+      <input type="tel" id="phone" placeholder="+1 (555) 555-5555" autocomplete="tel" />
+    </div>
+
+    <div class="consent-box">
+      <label class="consent-label">
+        <input type="checkbox" id="consent" />
+        <span class="consent-text">
+          I agree to receive recurring automated SMS weather and safety alerts from
+          <strong>Road Trip Weather Alert</strong> at the mobile number provided above.
+          These messages are public service announcements sent when severe weather
+          (e.g. tornado warnings, flash flood warnings, severe thunderstorm warnings)
+          is detected near my reported GPS location.
+          Message frequency varies based on weather conditions.
+          <a href="/privacy-policy.html">Privacy Policy</a> &middot;
+          <a href="/terms-of-service.html">Terms &amp; Conditions</a>
+        </span>
+      </label>
+      <div class="consent-details">
+        Message &amp; data rates may apply. Reply <strong>STOP</strong> to cancel at any time.
+        Reply <strong>HELP</strong> for help. Phone numbers are never sold or shared with third parties.
+      </div>
+    </div>
+
+    <button id="submit-btn" disabled onclick="submitEnrollment()">Request Access</button>
+    <div id="feedback"></div>
+  </div>
+
+  <footer>
+    <a href="/privacy-policy.html">Privacy Policy</a> &nbsp;&middot;&nbsp;
+    <a href="/terms-of-service.html">Terms &amp; Conditions</a><br>
+    Road Trip Weather Alert &mdash; jzewski.online
+  </footer>
+
+</div>
+
+<script>
+  const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:5000'
+    : 'https://api.jzewski.online';
+
+  // Enable submit only when consent is checked
+  document.getElementById('consent').addEventListener('change', function () {
+    document.getElementById('submit-btn').disabled = !this.checked;
+  });
+
+  async function submitEnrollment() {
+    const name    = document.getElementById('name').value.trim();
+    const phone   = document.getElementById('phone').value.trim();
+    const consent = document.getElementById('consent').checked;
+    const btn     = document.getElementById('submit-btn');
+    const feedback = document.getElementById('feedback');
+
+    feedback.textContent = '';
+    feedback.className   = '';
+
+    if (!name) {
+      feedback.textContent = 'Please enter your name.';
+      feedback.className   = 'error';
+      return;
+    }
+    if (!phone) {
+      feedback.textContent = 'Please enter your phone number.';
+      feedback.className   = 'error';
+      return;
+    }
+    if (!consent) {
+      feedback.textContent = 'Please check the consent box to continue.';
+      feedback.className   = 'error';
+      return;
+    }
+
+    btn.disabled     = true;
+    btn.textContent  = 'Submitting\u2026';
+
+    try {
+      const res  = await fetch(`${API_BASE}/api/enroll`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name, phone_number: phone, consent_given: true }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        document.getElementById('form-card').innerHTML = `
+          <div class="success-card">
+            <div class="big-icon">&#x2705;</div>
+            <h2>Request received!</h2>
+            <p>Thanks, <strong>${escHtml(name)}</strong>. Your enrollment request has been submitted.
+            The administrator will review it and send you a personal link to activate your account.</p>
+          </div>`;
+      } else {
+        feedback.textContent = data.error || 'Something went wrong. Please try again.';
+        feedback.className   = 'error';
+        btn.disabled         = false;
+        btn.textContent      = 'Request Access';
+      }
+    } catch (e) {
+      feedback.textContent = 'Could not reach the server. Check your connection and try again.';
+      feedback.className   = 'error';
+      btn.disabled         = false;
+      btn.textContent      = 'Request Access';
+    }
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>

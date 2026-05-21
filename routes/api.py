@@ -63,6 +63,45 @@ def post_location():
     })
 
 
+@api_bp.route('/enroll', methods=['POST'])
+def enroll():
+    """
+    POST /api/enroll
+    Public self-enrollment with SMS consent.
+    Creates an inactive user (pending admin approval).
+    Body: { "name": "Mom", "phone_number": "+15555551234", "consent_given": true }
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Invalid JSON body'}), 400
+
+    name    = (data.get('name') or '').strip()
+    phone   = (data.get('phone_number') or '').strip()
+    consent = data.get('consent_given', False)
+
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if not phone:
+        return jsonify({'error': 'phone_number is required'}), 400
+    if not phone.startswith('+'):
+        return jsonify({'error': 'phone_number must be in E.164 format (e.g. +15555551234)'}), 400
+    if not consent:
+        return jsonify({'error': 'consent_given must be true'}), 400
+
+    existing = User.query.filter_by(phone_number=phone).first()
+    if existing:
+        return jsonify({'error': 'A request for this phone number already exists'}), 409
+
+    user = User(name=name, phone_number=phone, is_active=False)
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({
+        'status': 'pending',
+        'message': f'Enrollment request received for {name}. The administrator will activate your account.',
+    }), 201
+
+
 @api_bp.route('/status/<token>', methods=['GET'])
 def get_status(token):
     """
